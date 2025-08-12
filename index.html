@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Painel de Estatísticas - Futebol</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; background: #111; color: #fff; text-align: center; margin: 0; padding: 0; }
+  h1 { margin: 20px 0; }
+  .kpis { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; }
+  .kpi { background: #222; padding: 15px; border-radius: 10px; width: 180px; }
+  canvas { background: #fff; border-radius: 8px; padding: 10px; }
+</style>
+</head>
+<body>
+
+<h1>📊 Painel de Estatísticas</h1>
+<div id="matchTitle">Carregando...</div>
+
+<div class="kpis">
+  <div class="kpi"><h2 id="score">0 - 0</h2><p>Placar</p></div>
+  <div class="kpi"><h2 id="minute">0'</h2><p>Minuto</p></div>
+  <div class="kpi"><h2 id="posse">50% - 50%</h2><p>Posse de Bola</p></div>
+  <div class="kpi"><h2 id="shots">0 / 0</h2><p>Finalizações</p></div>
+  <div class="kpi"><h2 id="corners">0 / 0</h2><p>Escanteios</p></div>
+</div>
+
+<canvas id="momentumChart" width="600" height="200"></canvas>
+
+<script>
+/* CONFIGURAÇÕES */
+const SUPABASE_URL = "https://SEU-PROJETO.supabase.co";
+const SUPABASE_ANON_KEY = "SUA_ANON_KEY";
+const MATCH_ID = "UUID_DA_PARTIDA";
+
+/* Inicializa Supabase */
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* Gráfico Momentum */
+const ctx = document.getElementById('momentumChart').getContext('2d');
+const momentumChart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: Array.from({ length: 90 }, (_, i) => i + 1),
+    datasets: [
+      { label: 'Time A', data: [], borderColor: 'blue', fill: false },
+      { label: 'Time B', data: [], borderColor: 'red', fill: false }
+    ]
+  }
+});
+
+/* Atualiza UI */
+function updateUI(data) {
+  document.getElementById("matchTitle").textContent = data.title || "Partida";
+  document.getElementById("score").textContent = `${data.score_a} - ${data.score_b}`;
+  document.getElementById("minute").textContent = `${data.minute}'`;
+  document.getElementById("posse").textContent = `${data.posse_a}% - ${100 - data.posse_a}%`;
+  document.getElementById("shots").textContent = `${data.shots_a} / ${data.shots_b}`;
+  document.getElementById("corners").textContent = `${data.corners_a} / ${data.corners_b}`;
+
+  momentumChart.data.datasets[0].data = data.momentum_a || [];
+  momentumChart.data.datasets[1].data = data.momentum_b || [];
+  momentumChart.update();
+}
+
+/* Busca inicial */
+async function loadInitial() {
+  if (!SUPABASE_URL.includes("SEU-PROJETO")) {
+    console.log("Modo simulação ativado");
+    let fakeData = {
+      title: "Jogo Simulado",
+      score_a: 1, score_b: 2, minute: 55,
+      posse_a: 63, shots_a: 7, shots_b: 4,
+      corners_a: 5, corners_b: 2,
+      momentum_a: Array.from({ length: 55 }, () => Math.random() * 100),
+      momentum_b: Array.from({ length: 55 }, () => Math.random() * 100)
+    };
+    updateUI(fakeData);
+    return;
+  }
+
+  let { data, error } = await supabase
+    .from("match_state")
+    .select("*")
+    .eq("id", MATCH_ID)
+    .single();
+  if (error) { console.error(error); return; }
+  updateUI(data);
+}
+
+/* Listener realtime */
+function subscribeRealtime() {
+  if (SUPABASE_URL.includes("SEU-PROJETO")) {
+    supabase
+      .channel("match_state_changes")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "match_state", filter: `id=eq.${MATCH_ID}` },
+        (payload) => {
+          console.log("Update recebido:", payload.new);
+          updateUI(payload.new);
+        }
+      )
+      .subscribe();
+  }
+}
+
+/* Inicia */
+loadInitial();
+subscribeRealtime();
+</script>
+</body>
+</html>
